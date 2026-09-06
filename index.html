@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>부산진고 학교생활</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+</head>
+
+
+<body>
+
+<header>
+
+    <h1>🏫 부산진고 학교생활</h1>
+
+    <p>
+        필요한 학교 정보를 한곳에서 확인하세요.
+    </p>
+
+</header>
+
+
+<main>
+
+
+    <!-- 최근 공지 -->
+
+    <section class="notice">
+
+        <span class="new">
+            NEW
+        </span>
+
+        <strong>
+            학생회 공지
+        </strong>
+
+        <p>
+            새로운 공지가 없습니다.
+        </p>
+
+    </section>
+
+
+
+    <!-- 메뉴 -->
+
+    <div class="menu">
+
+
+        <!-- 급식 -->
+
+        <button
+            class="card"
+            onclick="showMeal()"
+        >
+
+            <span class="icon">
+                🍚
+            </span>
+
+            <div>
+
+                <h2>
+                    오늘의 급식
+                </h2>
+
+                <p>
+                    오늘·다른 날짜 급식 확인
+                </p>
+
+            </div>
+
+        </button>
+
+
+
+        <!-- 학사일정 -->
+
+        <button
+            class="card"
+            onclick="showSchedule()"
+        >
+
+            <span class="icon">
+                📅
+            </span>
+
+            <div>
+
+                <h2>
+                    학사일정
+                </h2>
+
+                <p>
+                    시험·방학·주요 일정
+                </p>
+
+            </div>
+
+        </button>
+
+
+
+        <!-- 학생회 공지 -->
+
+        <button
+            class="card"
+            onclick="showNotice()"
+        >
+
+            <span class="icon">
+                📢
+            </span>
+
+            <div>
+
+                <h2>
+                    학생회 공지
+                </h2>
+
+                <p>
+                    학생회 공지사항 확인
+                </p>
+
+            </div>
+
+        </button>
+
+
+
+        <!-- 학생회 건의함 -->
+
+        <a
+            class="card"
+            href="#"
+            id="suggestionLink"
+        >
+
+            <span class="icon">
+                💬
+            </span>
+
+            <div>
+
+                <h2>
+                    학생회 건의함
+                </h2>
+
+                <p>
+                    학생회에 의견 전달
+                </p>
+
+            </div>
+
+        </a>
+
+
+
+        <!-- Instagram -->
+
+        <a
+            class="card"
+            href="#"
+            id="instagramLink"
+        >
+
+            <span class="icon">
+                📸
+            </span>
+
+            <div>
+
+                <h2>
+                    학생회 Instagram
+                </h2>
+
+                <p>
+                    학생회 공식 계정 바로가기
+                </p>
+
+            </div>
+
+        </a>
+
+
+    </div>
+
+
+
+    <!-- 내용 표시 영역 -->
+
+    <section
+        id="contentBox"
+        class="content-box hidden"
+    >
+    </section>
+
+
+</main>
+
+
+<footer>
+
+    부산진고등학교 학생회 정보부
+
+</footer>
+
+
+<script src="script.js"></script>
+
+
+</body>
+
+</html>
