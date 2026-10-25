@@ -1,1542 +1,281 @@
-/* =========================================================
-   부산진고 학교생활 정보 페이지
-   학생회 정보부
-========================================================= */
+"use strict";
 
-
-/* =========================================================
-   1. 학교 설정
-========================================================= */
-
-const CONFIG = {
-
-    schoolName: "부산진고등학교",
-
-    // 부산광역시교육청
-    officeCode: "C10",
-
-    // 처음에는 자동 조회
-    schoolCode: null,
-
-    /*
-        NEIS 인증키
-
-        현재는 비워둠.
-        나중에 정식 운영 단계에서 안전한 방식으로 연결.
-    */
-    neisKey: ""
-
+const CONFIG = { officeCode: "C10", schoolCode: "7150109", timeout: 8000 };
+const MEAL_OVERRIDE = { enabled: false, data: {} };
+const STORAGE_KEY = "busanjin-school.class.v1";
+const contentBox = document.getElementById("contentBox");
+const state = {
+  view: "", date: today(), selection: readSelection(), request: 0,
+  controller: null, storageWarning: ""
 };
 
-
-
-/* =========================================================
-   2. 급식 긴급 수정 시스템
-========================================================= */
-
-const MEAL_OVERRIDE = {
-
-    enabled: false,
-
-    data: {
-
-        /*
-        예시
-
-        "20260907": [
-            "백미밥",
-            "돼지국밥",
-            "깍두기",
-            "요구르트"
-        ]
-        */
-
-    }
-
-};
-
-
-
-/* =========================================================
-   기본 변수
-========================================================= */
-
-const contentBox =
-    document.getElementById("contentBox");
-
-
-let currentMealDate =
-    new Date();
-
-
-let currentScheduleDate =
-    new Date();
-
-
-
-/* =========================================================
-   날짜 → YYYYMMDD
-========================================================= */
-
-function formatDateForAPI(date) {
-
-    const year =
-        date.getFullYear();
-
-
-    const month =
-        String(
-            date.getMonth() + 1
-        ).padStart(2, "0");
-
-
-    const day =
-        String(
-            date.getDate()
-        ).padStart(2, "0");
-
-
-    return `${year}${month}${day}`;
-
+function today() {
+  return new Date(new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10) + "T00:00:00Z");
+}
+function dateKey(date) { return date.toISOString().slice(0, 10).replaceAll("-", ""); }
+function addDays(date, amount) { return new Date(date.getTime() + amount * 86400000); }
+function monthStart(date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)); }
+function monthEnd(date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)); }
+function weekStart(date) { return addDays(date, -((date.getUTCDay() + 6) % 7)); }
+function dateLabel(date) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "UTC", year: "numeric", month: "long", day: "numeric", weekday: "short"
+  }).format(date);
+}
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[char]);
+}
+function menuHTML(value) {
+  return String(value ?? "").split(/<br\s*\/?>|\r?\n/i).map(escapeHTML).join("<br>");
+}
+function validSelection(value) {
+  return value && /^[123]$/.test(String(value.grade)) && /^[1-9]\d?$/.test(String(value.className));
+}
+function readSelection() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (validSelection(value)) return { grade: String(value.grade), className: String(value.className) };
+  } catch {}
+  return { grade: "1", className: "1" };
+}
+function saveSelection(value) {
+  state.selection = value;
+  state.storageWarning = "";
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(value)); }
+  catch { state.storageWarning = "이 브라우저에서는 선택한 학년·반을 저장할 수 없습니다. 현재 조회는 가능합니다."; }
 }
 
-
-
-/* =========================================================
-   날짜 화면 표시
-========================================================= */
-
-function formatDateKorean(date) {
-
-    const days = [
-        "일",
-        "월",
-        "화",
-        "수",
-        "목",
-        "금",
-        "토"
-    ];
-
-
-    return (
-        `${date.getFullYear()}년 ` +
-        `${date.getMonth() + 1}월 ` +
-        `${date.getDate()}일 ` +
-        `(${days[date.getDay()]})`
-    );
-
-}
-
-
-
-/* =========================================================
-   fetch timeout
-
-   API 서버가 응답하지 않을 경우
-   무한 로딩 방지
-========================================================= */
-
-async function fetchWithTimeout(
-    url,
-    timeout = 8000
-) {
-
-    const controller =
-        new AbortController();
-
-
-    const timeoutId =
-        setTimeout(
-            () => controller.abort(),
-            timeout
-        );
-
-
-    try {
-
-        const response =
-            await fetch(
-                url,
-                {
-                    signal: controller.signal
-                }
-            );
-
-
-        return response;
-
-    }
-
-    finally {
-
-        clearTimeout(
-            timeoutId
-        );
-
-    }
-
-}
-
-
-
-/* =========================================================
-   학교 코드 자동 조회
-========================================================= */
-
-async function getSchoolCode() {
-
-    if (CONFIG.schoolCode) {
-
-        return CONFIG.schoolCode;
-
-    }
-
-
-    const params =
-        new URLSearchParams({
-
-            Type: "json",
-
-            pIndex: "1",
-
-            pSize: "5",
-
-            ATPT_OFCDC_SC_CODE:
-                CONFIG.officeCode,
-
-            SCHUL_NM:
-                CONFIG.schoolName
-
-        });
-
-
-    if (CONFIG.neisKey) {
-
-        params.append(
-            "KEY",
-            CONFIG.neisKey
-        );
-
-    }
-
-
-    const url =
-
-        "https://open.neis.go.kr/hub/schoolInfo?" +
-
-        params.toString();
-
-
-    const response =
-        await fetchWithTimeout(url);
-
-
-    if (!response.ok) {
-
-        throw new Error(
-            "학교 정보를 가져오지 못했습니다."
-        );
-
-    }
-
-
-    const data =
-        await response.json();
-
-
-    if (
-        !data.schoolInfo ||
-        !data.schoolInfo[1] ||
-        !data.schoolInfo[1].row ||
-        data.schoolInfo[1].row.length === 0
-    ) {
-
-        throw new Error(
-            "학교 정보를 찾지 못했습니다."
-        );
-
-    }
-
-
-    const school =
-        data.schoolInfo[1].row[0];
-
-
-    CONFIG.schoolCode =
-        school.SD_SCHUL_CODE;
-
-
-    console.log(
-        "학교 코드:",
-        CONFIG.schoolCode
-    );
-
-
-    return CONFIG.schoolCode;
-
-}
-
-
-
-/* =========================================================
-   급식
-========================================================= */
-
-function showMeal() {
-
-    currentMealDate =
-        new Date();
-
-
-    loadMeal(
-        currentMealDate
-    );
-
-}
-
-
-
-/* =========================================================
-   특정 날짜 급식
-========================================================= */
-
-async function loadMeal(date) {
-
-    contentBox.classList.remove(
-        "hidden"
-    );
-
-
-    contentBox.innerHTML = `
-
-        <h2>🍚 급식</h2>
-
-        <p class="loading">
-            급식 정보를 불러오는 중...
-        </p>
-
-    `;
-
-
-    moveDown();
-
-
-    try {
-
-        const dateCode =
-            formatDateForAPI(date);
-
-
-        /* 긴급 수정 확인 */
-
-        if (
-            MEAL_OVERRIDE.enabled &&
-            MEAL_OVERRIDE.data[dateCode]
-        ) {
-
-            displayManualMeal(
-
-                date,
-
-                MEAL_OVERRIDE.data[
-                    dateCode
-                ]
-
-            );
-
-
-            return;
-
-        }
-
-
-        const schoolCode =
-            await getSchoolCode();
-
-
-        const params =
-            new URLSearchParams({
-
-                Type: "json",
-
-                pIndex: "1",
-
-                pSize: "5",
-
-                ATPT_OFCDC_SC_CODE:
-                    CONFIG.officeCode,
-
-                SD_SCHUL_CODE:
-                    schoolCode,
-
-                MLSV_YMD:
-                    dateCode
-
-            });
-
-
-        if (CONFIG.neisKey) {
-
-            params.append(
-                "KEY",
-                CONFIG.neisKey
-            );
-
-        }
-
-
-        const url =
-
-            "https://open.neis.go.kr/hub/mealServiceDietInfo?" +
-
-            params.toString();
-
-
-        const response =
-            await fetchWithTimeout(url);
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "급식 서버 연결 실패"
-            );
-
-        }
-
-
-        const data =
-            await response.json();
-
-
-        if (
-            !data.mealServiceDietInfo ||
-            !data.mealServiceDietInfo[1] ||
-            !data.mealServiceDietInfo[1].row
-        ) {
-
-            displayNoMeal(date);
-
-            return;
-
-        }
-
-
-        const meals =
-            data.mealServiceDietInfo[1].row;
-
-
-        let meal =
-            meals.find(
-
-                item =>
-                    item.MMEAL_SC_NM ===
-                    "중식"
-
-            );
-
-
-        if (!meal) {
-
-            meal =
-                meals[0];
-
-        }
-
-
-        displayMeal(
-            date,
-            meal
-        );
-
-    }
-
-    catch (error) {
-
-        console.error(error);
-
-
-        contentBox.innerHTML = `
-
-            <h2>🍚 급식</h2>
-
-            <div class="error">
-
-                급식 정보를 불러오지 못했습니다.
-
-                <br><br>
-
-                잠시 후 다시 시도해주세요.
-
-            </div>
-
-            ${mealButtonsHTML()}
-
-        `;
-
-    }
-
-}
-
-
-
-/* =========================================================
-   급식 표시
-========================================================= */
-
-function displayMeal(
-    date,
-    meal
-) {
-
-    const menu =
-        meal.DDISH_NM
-            .replaceAll(
-                "<br/>",
-                "<br>"
-            );
-
-
-    contentBox.innerHTML = `
-
-        <h2>
-            🍚 급식
-        </h2>
-
-        <strong>
-            ${formatDateKorean(date)}
-        </strong>
-
-        <div class="meal-menu">
-
-            ${menu}
-
-        </div>
-
-        ${
-            meal.CAL_INFO
-                ?
-                `<p>🔥 ${meal.CAL_INFO}</p>`
-                :
-                ""
-        }
-
-        ${mealButtonsHTML()}
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   긴급수정 급식 표시
-========================================================= */
-
-function displayManualMeal(
-    date,
-    menu
-) {
-
-    const menuHTML =
-        menu.join("<br>");
-
-
-    contentBox.innerHTML = `
-
-        <h2>🍚 급식</h2>
-
-        <strong>
-            ${formatDateKorean(date)}
-        </strong>
-
-        <div class="meal-menu">
-
-            ${menuHTML}
-
-        </div>
-
-        <p>
-            ※ 학교 사정에 따라 수정된 급식 정보입니다.
-        </p>
-
-        ${mealButtonsHTML()}
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   급식 없는 날
-========================================================= */
-
-function displayNoMeal(date) {
-
-    contentBox.innerHTML = `
-
-        <h2>🍚 급식</h2>
-
-        <strong>
-            ${formatDateKorean(date)}
-        </strong>
-
-        <div class="meal-menu">
-
-            등록된 급식이 없습니다.
-
-        </div>
-
-        ${mealButtonsHTML()}
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   급식 버튼 HTML
-========================================================= */
-
-function mealButtonsHTML() {
-
-    return `
-
-        <div class="meal-buttons">
-
-            <button
-                onclick="changeMealDate(-1)"
-            >
-                ← 이전날
-            </button>
-
-            <button
-                onclick="goToday()"
-            >
-                오늘
-            </button>
-
-            <button
-                onclick="changeMealDate(1)"
-            >
-                다음날 →
-            </button>
-
-        </div>
-
-
-        <button
-            class="month-button"
-            onclick="showMonthlyMeal()"
-        >
-            📅 이번 달 급식 보기
-        </button>
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   급식 날짜 이동
-========================================================= */
-
-function changeMealDate(amount) {
-
-    currentMealDate.setDate(
-
-        currentMealDate.getDate()
-        + amount
-
-    );
-
-
-    loadMeal(
-        currentMealDate
-    );
-
-}
-
-
-
-/* =========================================================
-   오늘
-========================================================= */
-
-function goToday() {
-
-    currentMealDate =
-        new Date();
-
-
-    loadMeal(
-        currentMealDate
-    );
-
-}
-
-
-
-/* =========================================================
-   월간 급식
-========================================================= */
-
-async function showMonthlyMeal() {
-
-    contentBox.innerHTML = `
-
-        <h2>
-            📅 이번 달 급식
-        </h2>
-
-        <p class="loading">
-
-            이번 달 급식을 불러오는 중...
-
-        </p>
-
-    `;
-
-
-    try {
-
-        const schoolCode =
-            await getSchoolCode();
-
-
-        const year =
-            currentMealDate.getFullYear();
-
-
-        const month =
-            currentMealDate.getMonth();
-
-
-        const firstDay =
-            new Date(
-                year,
-                month,
-                1
-            );
-
-
-        const lastDay =
-            new Date(
-                year,
-                month + 1,
-                0
-            );
-
-
-        const params =
-            new URLSearchParams({
-
-                Type: "json",
-
-                pIndex: "1",
-
-                pSize:
-                    CONFIG.neisKey
-                        ? "100"
-                        : "5",
-
-                ATPT_OFCDC_SC_CODE:
-                    CONFIG.officeCode,
-
-                SD_SCHUL_CODE:
-                    schoolCode,
-
-                MLSV_FROM_YMD:
-                    formatDateForAPI(
-                        firstDay
-                    ),
-
-                MLSV_TO_YMD:
-                    formatDateForAPI(
-                        lastDay
-                    )
-
-            });
-
-
-        if (CONFIG.neisKey) {
-
-            params.append(
-                "KEY",
-                CONFIG.neisKey
-            );
-
-        }
-
-
-        const url =
-
-            "https://open.neis.go.kr/hub/mealServiceDietInfo?" +
-
-            params.toString();
-
-
-        const response =
-            await fetchWithTimeout(url);
-
-
-        const data =
-            await response.json();
-
-
-        if (
-            !data.mealServiceDietInfo ||
-            !data.mealServiceDietInfo[1]
-        ) {
-
-            contentBox.innerHTML = `
-
-                <h2>
-                    📅 이번 달 급식
-                </h2>
-
-                <p>
-                    등록된 급식이 없습니다.
-                </p>
-
-                <button
-                    class="month-button"
-                    onclick="showMeal()"
-                >
-                    오늘 급식으로 돌아가기
-                </button>
-
-            `;
-
-            return;
-
-        }
-
-
-        const meals =
-            data.mealServiceDietInfo[1].row;
-
-
-        let html = `
-
-            <h2>
-                📅 ${year}년
-                ${month + 1}월 급식
-            </h2>
-
-        `;
-
-
-        meals.forEach(
-            meal => {
-
-                if (
-                    meal.MMEAL_SC_NM !==
-                    "중식"
-                ) {
-
-                    return;
-
-                }
-
-
-                const date =
-                    meal.MLSV_YMD;
-
-
-                const day =
-                    Number(
-                        date.substring(
-                            6,
-                            8
-                        )
-                    );
-
-
-                const menu =
-                    meal.DDISH_NM
-                        .replaceAll(
-                            "<br/>",
-                            "<br>"
-                        );
-
-
-                html += `
-
-                    <div class="month-meal">
-
-                        <strong>
-
-                            ${month + 1}월
-                            ${day}일
-
-                        </strong>
-
-                        <br>
-
-                        ${menu}
-
-                    </div>
-
-                `;
-
-            }
-
-        );
-
-
-        html += `
-
-            <button
-                class="month-button"
-                onclick="showMeal()"
-            >
-
-                오늘 급식으로 돌아가기
-
-            </button>
-
-        `;
-
-
-        contentBox.innerHTML =
-            html;
-
-    }
-
-    catch (error) {
-
-        console.error(error);
-
-
-        contentBox.innerHTML = `
-
-            <h2>
-                📅 이번 달 급식
-            </h2>
-
-            <div class="error">
-
-                급식 정보를 불러오지 못했습니다.
-
-            </div>
-
-            <button
-                class="month-button"
-                onclick="showMeal()"
-            >
-
-                돌아가기
-
-            </button>
-
-        `;
-
-    }
-
-}
-
-
-
-/* =========================================================
-   학사일정
-========================================================= */
-
-function showSchedule() {
-
-    currentScheduleDate =
-        new Date();
-
-
-    loadSchedule(
-        currentScheduleDate
-    );
-
-}
-
-
-
-/* =========================================================
-   학사일정 한 페이지 요청
-========================================================= */
-
-async function requestSchedulePage(
-    schoolCode,
-    from,
-    to,
-    page
-) {
-
-    const params =
-        new URLSearchParams({
-
-            Type: "json",
-
-            pIndex:
-                String(page),
-
-            pSize:
-                CONFIG.neisKey
-                    ? "100"
-                    : "5",
-
-            ATPT_OFCDC_SC_CODE:
-                CONFIG.officeCode,
-
-            SD_SCHUL_CODE:
-                schoolCode,
-
-            AA_FROM_YMD:
-                from,
-
-            AA_TO_YMD:
-                to
-
-        });
-
-
-    if (CONFIG.neisKey) {
-
-        params.append(
-            "KEY",
-            CONFIG.neisKey
-        );
-
-    }
-
-
-    const url =
-
-        "https://open.neis.go.kr/hub/SchoolSchedule?" +
-
-        params.toString();
-
-
-    const response =
-        await fetchWithTimeout(url);
-
-
-    if (!response.ok) {
-
-        throw new Error(
-            "학사일정 서버 연결 실패"
-        );
-
-    }
-
-
+async function fetchJSON(url, signal, optional = false) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, CONFIG.timeout);
+  try {
+    const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+    if (optional && response.status === 404) return null;
+    if (!response.ok) throw new Error("서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.");
     return await response.json();
-
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+  }
 }
-
-
-
-/* =========================================================
-   학사일정 불러오기
-========================================================= */
-
-async function loadSchedule(date) {
-
-    contentBox.classList.remove(
-        "hidden"
-    );
-
-
-    const year =
-        date.getFullYear();
-
-
-    const month =
-        date.getMonth();
-
-
-    contentBox.innerHTML = `
-
-        <h2>
-            📅 ${year}년
-            ${month + 1}월 학사일정
-        </h2>
-
-        <p class="loading">
-
-            학사일정을 불러오는 중...
-
-        </p>
-
-    `;
-
-
-    moveDown();
-
-
-    try {
-
-        const schoolCode =
-            await getSchoolCode();
-
-
-        const firstDay =
-            new Date(
-                year,
-                month,
-                1
-            );
-
-
-        const lastDay =
-            new Date(
-                year,
-                month + 1,
-                0
-            );
-
-
-        const from =
-            formatDateForAPI(
-                firstDay
-            );
-
-
-        const to =
-            formatDateForAPI(
-                lastDay
-            );
-
-
-        let schedules = [];
-
-
-        /*
-            인증키가 있으면 한 번에 최대 100개
-
-            인증키가 없으면 sample key이므로
-            첫 5건만 받을 수 있음.
-        */
-
-        const data =
-            await requestSchedulePage(
-
-                schoolCode,
-
-                from,
-
-                to,
-
-                1
-
-            );
-
-
-        if (
-            !data.SchoolSchedule ||
-            !data.SchoolSchedule[1] ||
-            !data.SchoolSchedule[1].row
-        ) {
-
-            displayNoSchedule(
-                year,
-                month
-            );
-
-            return;
-
-        }
-
-
-        schedules =
-            data.SchoolSchedule[1].row;
-
-
-        displaySchedule(
-
-            year,
-            month,
-            schedules
-
-        );
-
+async function neisPage(service, filters, signal) {
+  const params = new URLSearchParams({
+    Type: "json", pIndex: "1", pSize: "5",
+    ATPT_OFCDC_SC_CODE: CONFIG.officeCode, SD_SCHUL_CODE: CONFIG.schoolCode, ...filters
+  });
+  const data = await fetchJSON(`https://open.neis.go.kr/hub/${service}?${params}`, signal);
+  if (data.RESULT?.CODE === "INFO-200") return { rows: [], complete: true };
+  const block = data[service];
+  const head = block?.find(part => part.head)?.head;
+  const result = data.RESULT || head?.find(part => part.RESULT)?.RESULT;
+  if (result?.CODE !== "INFO-000") throw new Error("자료를 정상적으로 조회하지 못했습니다. 잠시 후 다시 시도해주세요.");
+  const rows = block?.find(part => part.row)?.row;
+  const total = Number(head?.find(part => "list_total_count" in part)?.list_total_count);
+  if (!Array.isArray(rows) || !Number.isInteger(total) || total < rows.length) {
+    throw new Error("받은 자료를 확인할 수 없습니다. 다시 조회해주세요.");
+  }
+  return { rows, complete: rows.length === total };
+}
+async function rangeData(service, fields, from, to, filters, signal, depth = 0) {
+  const data = await neisPage(service, {
+    ...filters, [fields[0]]: dateKey(from), [fields[1]]: dateKey(to)
+  }, signal);
+  if (data.complete || dateKey(from) === dateKey(to)) return data;
+  // 인증키 없는 응답은 날짜 범위를 나누어 확인하되, 하루 안의 누락도 검사합니다.
+  const middle = addDays(from, Math.floor((to - from) / 86400000 / 2));
+  const left = () => rangeData(service, fields, from, middle, filters, signal, depth + 1);
+  const right = () => rangeData(service, fields, addDays(middle, 1), to, filters, signal, depth + 1);
+  const parts = depth < 2 ? await Promise.all([left(), right()]) : [await left(), await right()];
+  return { rows: parts.flatMap(part => part.rows), complete: parts.every(part => part.complete) };
+}
+async function snapshot(kind, from, to, signal) {
+  const start = kind === "timetable" ? weekStart(from) : monthStart(from);
+  const end = kind === "timetable" ? addDays(start, 4) : monthEnd(from);
+  const key = kind === "timetable" ? dateKey(start) : dateKey(start).slice(0, 6);
+  try {
+    const data = await fetchJSON(new URL(`data/${kind}/${key}.json`, document.baseURI), signal, true);
+    const age = Date.now() - Date.parse(data?.generatedAt);
+    if (data?.version !== 1 || data.schoolCode !== CONFIG.schoolCode || data.kind !== kind ||
+        data.complete !== true || data.from !== dateKey(start) || data.to !== dateKey(end) ||
+        !Array.isArray(data.rows) || !Number.isFinite(age) || age < -300000 || age > 36 * 3600000) return null;
+    return data;
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return null;
+  }
+}
+async function getData(kind, from, to, filters, signal) {
+  const definitions = {
+    meal: ["mealServiceDietInfo", ["MLSV_FROM_YMD", "MLSV_TO_YMD"], "MLSV_YMD"],
+    schedule: ["SchoolSchedule", ["AA_FROM_YMD", "AA_TO_YMD"], "AA_YMD"],
+    timetable: ["hisTimetable", ["TI_FROM_YMD", "TI_TO_YMD"], "ALL_TI_YMD"]
+  };
+  const [service, fields, dateField] = definitions[kind];
+  const cached = await snapshot(kind, from, to, signal);
+  const data = cached || await rangeData(service, fields, from, to, filters, signal);
+  const rows = data.rows.filter(row => row[dateField] >= dateKey(from) && row[dateField] <= dateKey(to) &&
+    Object.entries(filters).every(([key, value]) => String(row[key]) === value));
+  return { ...data, rows: [...new Map(rows.map(row => [JSON.stringify(row), row])).values()] };
+}
+function metadata(data) {
+  const warning = data.warning || !data.complete;
+  const text = data.warning || "일부 자료만 확인했습니다. 표시되지 않은 일정이나 교시가 있을 수 있습니다.";
+  return (warning ? `<p class="message warning" role="status">${escapeHTML(text)}</p>` : "") +
+    `<p class="source">나이스 공개자료 기준${data.generatedAt ? ` · 자료 갱신: ${escapeHTML(new Date(data.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }))}` : ""}</p>`;
+}
+function overrideFor(date, type) {
+  if (!MEAL_OVERRIDE.enabled) return null;
+  const day = MEAL_OVERRIDE.data[dateKey(date)];
+  const value = Array.isArray(day) ? (type === "lunch" ? day : null) : day?.[type];
+  if (Array.isArray(value)) return { menu: value, calories: "" };
+  return value && Array.isArray(value.menu) ? value : null;
+}
+async function mealData(date, signal) {
+  const count = ["lunch", "dinner"].filter(type => overrideFor(date, type)).length;
+  if (count === 2) return { rows: [], complete: true, manualOnly: true };
+  try { return await getData("meal", date, date, {}, signal); }
+  catch (error) {
+    if (signal.aborted || !count) throw error;
+    return { rows: [], complete: false, warning: "자동 급식 정보를 불러오지 못해 확인된 긴급 수정 정보만 표시합니다." };
+  }
+}
+function renderMeal(date, data) {
+  const cards = [["lunch", "2", "중식"], ["dinner", "3", "석식"]].map(([type, code, name]) => {
+    const manual = overrideFor(date, type);
+    const meals = data.rows.filter(row => String(row.MMEAL_SC_CODE) === code || row.MMEAL_SC_NM === name);
+    let body;
+    if (manual) {
+      body = manual.menu.length ? manual.menu.map(escapeHTML).join("<br>") : "등록된 급식이 없습니다.";
+      if (manual.calories) body += `<p class="calories">열량: ${escapeHTML(manual.calories)}</p>`;
+      body += '<p class="hint">학교 사정에 따라 수정된 급식 정보입니다.</p>';
+    } else {
+      body = meals.map(meal => menuHTML(meal.DDISH_NM) +
+        (meal.CAL_INFO ? `<p class="calories">열량: ${escapeHTML(meal.CAL_INFO)}</p>` : "")).join("<br>") ||
+        (data.complete ? `등록된 ${name} 정보가 없습니다.` : `${name} 정보를 확인하지 못했습니다.`);
     }
-
-    catch (error) {
-
-        console.error(
-            "학사일정 오류:",
-            error
-        );
-
-
-        contentBox.innerHTML = `
-
-            <h2>
-                📅 ${year}년
-                ${month + 1}월 학사일정
-            </h2>
-
-            <div class="error">
-
-                학사일정을 불러오지 못했습니다.
-
-                <br><br>
-
-                인터넷 연결 또는
-                NEIS 서버 상태를 확인해주세요.
-
-            </div>
-
-            ${scheduleButtonsHTML()}
-
-        `;
-
+    return `<section class="meal-card"><h3>${name}</h3><div>${body}</div></section>`;
+  }).join("");
+  return `<div class="meal-grid">${cards}</div>` +
+    (data.manualOnly ? '<p class="source">학생회 정보부 긴급 수정 정보</p>' : metadata(data));
+}
+function renderSchedule(data) {
+  const rows = data.rows.filter(row => String(row.EVENT_NM).replace(/\s/g, "") !== "토요휴업일")
+    .sort((a, b) => a.AA_YMD.localeCompare(b.AA_YMD));
+  const body = rows.map(row => {
+    const key = row.AA_YMD;
+    const date = new Date(`${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}T00:00:00Z`);
+    return `<article class="schedule-item"><strong>${dateLabel(date)}</strong><p>${escapeHTML(row.EVENT_NM)}</p></article>`;
+  }).join("");
+  return (body || `<p class="message">${data.complete ? "토요휴업일을 제외한 등록 일정이 없습니다." : "확인된 일정이 없습니다. 전체 조회는 완료되지 않았습니다."}</p>`) + metadata(data);
+}
+function classForm() {
+  const { grade, className } = state.selection;
+  return `<form id="classForm" class="class-form">
+    <label for="grade">학년<select id="grade" name="grade">${[1, 2, 3].map(value =>
+      `<option value="${value}"${String(value) === grade ? " selected" : ""}>${value}학년</option>`).join("")}</select></label>
+    <label for="className">반<input id="className" name="className" type="number" inputmode="numeric" min="1" max="99" step="1" value="${className}" required></label>
+    <button class="submit-button" type="submit">조회</button></form>
+    <p class="hint">반 번호를 입력하세요. 선택값은 이 브라우저에만 저장됩니다.</p>
+    ${state.storageWarning ? `<p class="message warning">${escapeHTML(state.storageWarning)}</p>` : ""}`;
+}
+function renderTimetable(date, data, selection) {
+  const days = Array.from({ length: 5 }, (_, index) => dateKey(addDays(date, index)));
+  const periods = [...new Set(data.rows.map(row => String(row.PERIO)))].sort((a, b) => Number(a) - Number(b));
+  if (!periods.length) return `<p class="message">${data.complete ? "선택한 학급·기간에 등록된 시간표가 없습니다." : "시간표를 모두 확인하지 못했습니다."}</p>${metadata(data)}`;
+  const rows = periods.map(period => `<tr><th scope="row">${escapeHTML(period)}교시</th>${days.map(day => {
+    const subjects = [...new Set(data.rows.filter(row => row.ALL_TI_YMD === day && String(row.PERIO) === period).map(row => row.ITRT_CNTNT))];
+    return `<td>${subjects.length ? subjects.map(subject => `<span>${escapeHTML(subject)}</span>`).join("") : data.complete ? "—" : "미확인"}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<div class="table-scroll" role="region" aria-label="주간 시간표" tabindex="0"><table class="timetable">
+    <caption>${selection.grade}학년 ${selection.className}반</caption>
+    <thead><tr><th scope="col">교시</th>${days.map((day, index) => `<th scope="col">${["월", "화", "수", "목", "금"][index]}<br>${Number(day.slice(4, 6))}/${Number(day.slice(6))}</th>`).join("")}</tr></thead>
+    <tbody>${rows}</tbody></table></div><p class="hint">${data.complete ? "—: 제공된 자료에 수업 정보가 없는 칸입니다." : "미확인 교시와 표시되지 않은 교시가 있을 수 있습니다."} 선택과목·변경 수업은 학교 안내도 확인해주세요.</p>${metadata(data)}`;
+}
+function heading() {
+  const date = state.date;
+  const title = state.view === "meal" ? "🍚 급식" : state.view === "schedule" ? "📅 학사일정" : "📚 우리 반 시간표";
+  const label = state.view === "meal" ? dateLabel(date) : state.view === "schedule" ?
+    `${date.getUTCFullYear()}년 ${date.getUTCMonth() + 1}월` : `${dateLabel(date)} ~ ${dateLabel(addDays(date, 4))}`;
+  const unit = state.view === "meal" ? "날" : state.view === "schedule" ? "달" : "주";
+  const current = state.view === "meal" ? "오늘" : `이번 ${unit}`;
+  return `<h2>${title}</h2><strong class="date-title">${label}</strong>${state.view === "timetable" ? classForm() : ""}
+    <div class="controls"><button type="button" data-action="previous">← 이전 ${unit}</button>
+    <button type="button" data-action="current">${current}</button><button type="button" data-action="next">다음 ${unit} →</button></div>`;
+}
+async function render() {
+  state.controller?.abort();
+  const id = ++state.request;
+  const controller = new AbortController();
+  state.controller = controller;
+  const { view, date } = state;
+  const selection = { ...state.selection };
+  contentBox.hidden = false;
+  if (view === "notice") {
+    contentBox.setAttribute("aria-busy", "false");
+    contentBox.innerHTML = "<h2>📢 학생회 공지</h2><p>현재 등록된 학생회 공지가 없습니다.</p>";
+    return;
+  }
+  contentBox.setAttribute("aria-busy", "true");
+  contentBox.innerHTML = heading() + '<div id="viewResult"><p class="loading" role="status">정보를 불러오는 중...</p></div>';
+  const deadline = setTimeout(() => controller.abort(), 25000);
+  try {
+    let data, html;
+    if (view === "meal") {
+      data = await mealData(date, controller.signal);
+      html = renderMeal(date, data);
+    } else if (view === "schedule") {
+      data = await getData(view, monthStart(date), monthEnd(date), {}, controller.signal);
+      html = renderSchedule(data);
+    } else {
+      data = await getData(view, date, addDays(date, 4), { GRADE: selection.grade, CLASS_NM: selection.className }, controller.signal);
+      html = renderTimetable(date, data, selection);
     }
-
+    if (id === state.request) document.getElementById("viewResult").innerHTML = html;
+  } catch (error) {
+    if (id !== state.request) return;
+    const message = error.name === "AbortError" ? "응답이 늦어 조회를 중단했습니다. 다시 시도해주세요." : "정보를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해주세요.";
+    document.getElementById("viewResult").innerHTML = `<p class="message error" role="alert">${escapeHTML(message)}</p><button class="retry-button" type="button" data-action="retry">다시 시도</button>`;
+  } finally {
+    clearTimeout(deadline);
+    if (id === state.request) contentBox.setAttribute("aria-busy", "false");
+  }
 }
-
-
-
-/* =========================================================
-   학사일정 표시
-========================================================= */
-
-function displaySchedule(
-    year,
-    month,
-    schedules
-) {
-
-    schedules.sort(
-        (a, b) =>
-            a.AA_YMD.localeCompare(
-                b.AA_YMD
-            )
-    );
-
-
-    let html = `
-
-        <h2>
-
-            📅 ${year}년
-            ${month + 1}월 학사일정
-
-        </h2>
-
-    `;
-
-
-    schedules.forEach(
-        schedule => {
-
-            const date =
-                schedule.AA_YMD;
-
-
-            const day =
-                Number(
-                    date.substring(
-                        6,
-                        8
-                    )
-                );
-
-
-            const scheduleDate =
-                new Date(
-
-                    Number(
-                        date.substring(
-                            0,
-                            4
-                        )
-                    ),
-
-                    Number(
-                        date.substring(
-                            4,
-                            6
-                        )
-                    ) - 1,
-
-                    day
-
-                );
-
-
-            const days = [
-
-                "일",
-                "월",
-                "화",
-                "수",
-                "목",
-                "금",
-                "토"
-
-            ];
-
-
-            const dayName =
-                days[
-                    scheduleDate.getDay()
-                ];
-
-
-            html += `
-
-                <div class="month-meal">
-
-                    <strong>
-
-                        ${month + 1}월
-                        ${day}일
-                        (${dayName})
-
-                    </strong>
-
-                    <br>
-
-                    ${schedule.EVENT_NM}
-
-                </div>
-
-            `;
-
-        }
-
-    );
-
-
-    html +=
-        scheduleButtonsHTML();
-
-
-    contentBox.innerHTML =
-        html;
-
+function selectView(view) {
+  state.view = view;
+  state.date = view === "schedule" ? monthStart(today()) : view === "timetable" ? weekStart(today()) : today();
+  document.querySelectorAll("[data-view]").forEach(button => {
+    if (button.dataset.view === view) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  });
+  render();
+  contentBox.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
-
-
-
-/* =========================================================
-   학사일정 없음
-========================================================= */
-
-function displayNoSchedule(
-    year,
-    month
-) {
-
-    contentBox.innerHTML = `
-
-        <h2>
-
-            📅 ${year}년
-            ${month + 1}월 학사일정
-
-        </h2>
-
-        <div class="meal-menu">
-
-            등록된 학사일정이 없습니다.
-
-        </div>
-
-        ${scheduleButtonsHTML()}
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   학사일정 이동 버튼
-========================================================= */
-
-function scheduleButtonsHTML() {
-
-    return `
-
-        <div class="meal-buttons">
-
-            <button
-                onclick="changeScheduleMonth(-1)"
-            >
-
-                ← 이전 달
-
-            </button>
-
-            <button
-                onclick="goCurrentScheduleMonth()"
-            >
-
-                이번 달
-
-            </button>
-
-            <button
-                onclick="changeScheduleMonth(1)"
-            >
-
-                다음 달 →
-
-            </button>
-
-        </div>
-
-    `;
-
-}
-
-
-
-/* =========================================================
-   학사일정 이전/다음 달
-========================================================= */
-
-function changeScheduleMonth(amount) {
-
-    currentScheduleDate =
-        new Date(
-
-            currentScheduleDate.getFullYear(),
-
-            currentScheduleDate.getMonth()
-            + amount,
-
-            1
-
-        );
-
-
-    loadSchedule(
-        currentScheduleDate
-    );
-
-}
-
-
-
-/* =========================================================
-   이번 달
-========================================================= */
-
-function goCurrentScheduleMonth() {
-
-    currentScheduleDate =
-        new Date();
-
-
-    loadSchedule(
-        currentScheduleDate
-    );
-
-}
-
-
-
-/* =========================================================
-   학생회 공지
-========================================================= */
-
-function showNotice() {
-
-    contentBox.classList.remove(
-        "hidden"
-    );
-
-
-    contentBox.innerHTML = `
-
-        <h2>
-            📢 학생회 공지
-        </h2>
-
-        <p>
-            현재 등록된 학생회 공지가 없습니다.
-        </p>
-
-    `;
-
-
-    moveDown();
-
-}
-
-
-
-/* =========================================================
-   화면 이동
-========================================================= */
-
-function moveDown() {
-
-    setTimeout(
-        function () {
-
-            contentBox.scrollIntoView({
-
-                behavior: "smooth",
-
-                block: "start"
-
-            });
-
-        },
-
-        50
-    );
-
-}
-
-
-
-/* =========================================================
-   학생회 건의함
-========================================================= */
-
-document
-    .getElementById(
-        "suggestionLink"
-    )
-    .addEventListener(
-        "click",
-        function(event) {
-
-            event.preventDefault();
-
-
-            alert(
-                "학생회 건의함 링크가 아직 등록되지 않았습니다."
-            );
-
-        }
-    );
-
-
-
-/* =========================================================
-   Instagram
-========================================================= */
-
-document
-    .getElementById(
-        "instagramLink"
-    )
-    .addEventListener(
-        "click",
-        function(event) {
-
-            event.preventDefault();
-
-
-            alert(
-                "학생회 Instagram 링크가 아직 등록되지 않았습니다."
-            );
-
-        }
-    );
+document.addEventListener("click", event => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  if (button.dataset.view) return selectView(button.dataset.view);
+  if (button.dataset.placeholder) return alert(`${button.dataset.placeholder} 링크가 아직 등록되지 않았습니다.`);
+  const action = button.dataset.action;
+  if (!action) return;
+  if (action === "current") return selectView(state.view);
+  if (action !== "retry") {
+    const amount = action === "previous" ? -1 : 1;
+    state.date = state.view === "schedule" ? new Date(Date.UTC(state.date.getUTCFullYear(), state.date.getUTCMonth() + amount, 1)) :
+      addDays(state.date, amount * (state.view === "timetable" ? 7 : 1));
+  }
+  render();
+});
+document.addEventListener("submit", event => {
+  if (event.target.id !== "classForm") return;
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const value = { grade: String(form.get("grade")), className: String(form.get("className")).trim() };
+  if (!validSelection(value)) return;
+  saveSelection(value);
+  render();
+});

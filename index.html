@@ -1,226 +1,53 @@
 <!DOCTYPE html>
 <html lang="ko">
-
 <head>
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>부산진고 학교생활</title>
-
-    <link
-        rel="stylesheet"
-        href="style.css"
-    >
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="부산진고등학교 급식, 학사일정과 학급 시간표를 확인하세요.">
+  <title>부산진고 학교생활</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
 </head>
-
-
 <body>
-
-<header>
-
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <header>
     <h1>🏫 부산진고 학교생활</h1>
-
-    <p>
-        필요한 학교 정보를 한곳에서 확인하세요.
-    </p>
-
-</header>
-
-
-<main>
-
-
-    <!-- 최근 공지 -->
-
-    <section class="notice">
-
-        <span class="new">
-            NEW
-        </span>
-
-        <strong>
-            학생회 공지
-        </strong>
-
-        <p>
-            새로운 공지가 없습니다.
-        </p>
-
+    <p>필요한 학교 정보를 한곳에서 확인하세요.</p>
+  </header>
+  <main id="main">
+    <section class="notice" aria-label="최근 학생회 공지">
+      <strong>학생회 공지</strong>
+      <p>새로운 공지가 없습니다.</p>
     </section>
-
-
-
-    <!-- 메뉴 -->
-
-    <div class="menu">
-
-
-        <!-- 급식 -->
-
-        <button
-            class="card"
-            onclick="showMeal()"
-        >
-
-            <span class="icon">
-                🍚
-            </span>
-
-            <div>
-
-                <h2>
-                    오늘의 급식
-                </h2>
-
-                <p>
-                    오늘·다른 날짜 급식 확인
-                </p>
-
-            </div>
-
-        </button>
-
-
-
-        <!-- 학사일정 -->
-
-        <button
-            class="card"
-            onclick="showSchedule()"
-        >
-
-            <span class="icon">
-                📅
-            </span>
-
-            <div>
-
-                <h2>
-                    학사일정
-                </h2>
-
-                <p>
-                    시험·방학·주요 일정
-                </p>
-
-            </div>
-
-        </button>
-
-
-
-        <!-- 학생회 공지 -->
-
-        <button
-            class="card"
-            onclick="showNotice()"
-        >
-
-            <span class="icon">
-                📢
-            </span>
-
-            <div>
-
-                <h2>
-                    학생회 공지
-                </h2>
-
-                <p>
-                    학생회 공지사항 확인
-                </p>
-
-            </div>
-
-        </button>
-
-
-
-        <!-- 학생회 건의함 -->
-
-        <a
-            class="card"
-            href="#"
-            id="suggestionLink"
-        >
-
-            <span class="icon">
-                💬
-            </span>
-
-            <div>
-
-                <h2>
-                    학생회 건의함
-                </h2>
-
-                <p>
-                    학생회에 의견 전달
-                </p>
-
-            </div>
-
-        </a>
-
-
-
-        <!-- Instagram -->
-
-        <a
-            class="card"
-            href="#"
-            id="instagramLink"
-        >
-
-            <span class="icon">
-                📸
-            </span>
-
-            <div>
-
-                <h2>
-                    학생회 Instagram
-                </h2>
-
-                <p>
-                    학생회 공식 계정 바로가기
-                </p>
-
-            </div>
-
-        </a>
-
-
-    </div>
-
-
-
-    <!-- 내용 표시 영역 -->
-
-    <section
-        id="contentBox"
-        class="content-box hidden"
-    >
-    </section>
-
-
-</main>
-
-
-<footer>
-
-    부산진고등학교 학생회 정보부
-
-</footer>
-
-
-<script src="script.js"></script>
-
-
+    <nav class="menu" aria-label="학교생활 메뉴">
+      <button class="card" type="button" data-view="meal">
+        <span class="icon" aria-hidden="true">🍚</span>
+        <span><strong>오늘의 급식</strong><small>날짜별 중식·석식 확인</small></span>
+      </button>
+      <button class="card" type="button" data-view="schedule">
+        <span class="icon" aria-hidden="true">📅</span>
+        <span><strong>학사일정</strong><small>시험·방학·주요 일정</small></span>
+      </button>
+      <button class="card" type="button" data-view="timetable">
+        <span class="icon" aria-hidden="true">📚</span>
+        <span><strong>우리 반 시간표</strong><small>로그인 없이 학년·반 선택</small></span>
+      </button>
+      <button class="card" type="button" data-view="notice">
+        <span class="icon" aria-hidden="true">📢</span>
+        <span><strong>학생회 공지</strong><small>학생회 공지사항 확인</small></span>
+      </button>
+      <button class="card" type="button" data-placeholder="학생회 건의함">
+        <span class="icon" aria-hidden="true">💬</span>
+        <span><strong>학생회 건의함</strong><small>연결 준비 중</small></span>
+      </button>
+      <button class="card" type="button" data-placeholder="학생회 Instagram">
+        <span class="icon" aria-hidden="true">📸</span>
+        <span><strong>학생회 Instagram</strong><small>연결 준비 중</small></span>
+      </button>
+    </nav>
+    <section id="contentBox" class="content-box" aria-live="polite" aria-busy="false" tabindex="-1" hidden></section>
+    <noscript><p class="message">급식과 시간표를 확인하려면 브라우저에서 JavaScript를 허용해주세요.</p></noscript>
+  </main>
+  <footer>부산진고등학교 학생회 정보부</footer>
 </body>
-
 </html>
